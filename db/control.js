@@ -999,16 +999,12 @@ export const directLogActivitySessionUser = async (
       uname: uname,
     };
   } else {
-    const merchant = await Merchant.findOne({ merchant_id: mid }).select(
-      "merchant_name",
-    );
-
     params = {
       log_action: logAction,
       description: logDescription,
       uid: uid,
       mid: mid,
-      mname: merchant ? merchant.merchant_name : "none",
+      mname: "none",
       uname: uname,
     };
   }
@@ -1043,16 +1039,12 @@ export const loadLogActivitySessionUser = async (
       uname: [user.first_name, user.last_name].join(" "),
     };
   } else {
-    const merchant = await Merchant.findOne({ merchant_id: mid }).select(
-      "merchant_name",
-    );
-
     params = {
       log_action: logAction,
       description: logDescription,
       uid: uid,
       mid: mid,
-      mname: merchant?.merchant_name ? merchant?.merchant_name : "none",
+      mname: "none",
       uname: [user.first_name, user.last_name].join(" "),
     };
   }
@@ -1150,5 +1142,5 @@ export const merchantCounts = async (filter) => {
 
   // order_num,
   // uid
-  return await Merchant.countDocuments(filter);
+  return 0;
 };
