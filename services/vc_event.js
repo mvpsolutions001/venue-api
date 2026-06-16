@@ -319,8 +319,15 @@ export const loadEvent = async (req, res) => {
 
         fs.writeFileSync("debug.html", htmlData);
 
+        // await page.setContent(htmlData, {
+        //   waitUntil: "networkidle0",
+        // });
+
+        page.setDefaultNavigationTimeout(60000);
+        page.setDefaultTimeout(60000);
+
         await page.setContent(htmlData, {
-          waitUntil: "networkidle0",
+          waitUntil: "domcontentloaded",
         });
 
         page.on("console", (msg) => console.log("PAGE:", msg.text()));

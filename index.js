@@ -370,9 +370,16 @@ app.get(`${APP_URL_PREFIX}/pdf`, async function (req, res) {
 
   fs.writeFileSync("debug.html", htmlData);
 
+  page.setDefaultNavigationTimeout(60000);
+  page.setDefaultTimeout(60000);
+
   await page.setContent(htmlData, {
-    waitUntil: "networkidle0",
+    waitUntil: "domcontentloaded",
   });
+
+  // await page.setContent(htmlData, {
+  //   waitUntil: "networkidle0",
+  // });
 
   page.on("console", (msg) => console.log("PAGE:", msg.text()));
 
