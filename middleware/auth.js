@@ -3,6 +3,7 @@ import { dbValidateToken } from "../db/control.js";
 // middlewares/auth.js
 export const authenticate = async (req, res, next) => {
   try {
+    // next(); //bypass
     const token = req.cookies.venutoken;
 
     if (!token) {

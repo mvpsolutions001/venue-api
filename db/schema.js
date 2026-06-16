@@ -369,6 +369,12 @@ const clientSchema = new mongoose.Schema(
       unique: true,
     },
     client_name: { type: String },
+    primary_first_name: { type: String },
+    primary_middle_name: { type: String },
+    primary_last_name: { type: String },
+    secondary_first_name: { type: String },
+    secondary_middle_name: { type: String },
+    secondary_last_name: { type: String },
     contact_person: { type: String },
     contact_no: { type: String },
     email: { type: String },
@@ -409,6 +415,18 @@ const eventSchema = new mongoose.Schema(
     egress_time_tentative: { type: Number, min: 0 },
     override_rate: { type: Number, min: 0 },
     override_description: { type: String },
+
+    venue_base_amount: { type: Number, min: 0 },
+    venue_computed_amount: { type: Number, min: 0 },
+
+    total_additional_amount: { type: Number, min: 0 },
+
+    subtotal: { type: Number, min: 0 },
+    discount: { type: Number, min: 0 },
+    grand_total: { type: Number, min: 0 },
+
+    total_paid_amount: { type: Number, min: 0 },
+    balance_amount: { type: Number, min: 0 },
 
     venue_requirements: { type: [venueRequirementSchema], default: [] },
     event_options: { type: [eventOptionSchema], default: [] },

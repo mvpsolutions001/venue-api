@@ -896,8 +896,6 @@ export const dbListUsers = async (params) => {
       last_name: 1,
       email: 1,
       role: 1,
-      merchant_id: 1,
-      merchant_name: 1,
       status: 1,
       type: 1,
       initial_password: 1,
@@ -920,9 +918,6 @@ export const dbListUsers = async (params) => {
 
     return {
       ...rest,
-      merchant_id: merchant_id === "default" ? DEFAULT_MERCHANT : merchant_id,
-      merchant_name:
-        merchant_id === "default" ? DEFAULT_MERCHANT : merchant_name,
       status: status === 1 ? "Active" : "Inactive",
       createdAtFormatted: dayjs(createdAt)
         .tz("Asia/Manila")
@@ -934,6 +929,58 @@ export const dbListUsers = async (params) => {
   });
 
   return formattedItems;
+};
+
+export const dbGetUser = async (params) => {
+  await connectDb();
+
+  let pipeLine = [];
+
+  // Filter by uid if provided
+  if (params?.uid) {
+    pipeLine.push({
+      $match: {
+        uid: params.uid,
+      },
+    });
+  }
+
+  pipeLine.push({
+    $sort: {
+      updatedAt: -1,
+    },
+  });
+
+  pipeLine.push({
+    $project: {
+      uid: 1,
+      first_name: 1,
+      last_name: 1,
+      email: 1,
+      role: 1,
+      status: 1,
+      type: 1,
+      initial_password: 1,
+      createdAt: 1,
+      updatedAt: 1,
+    },
+  });
+
+  const itemsNew = await User.aggregate(pipeLine);
+
+  return itemsNew.map((item) => {
+    const { createdAt, updatedAt, merchant_id, merchant_name, ...rest } = item;
+
+    return {
+      ...rest,
+      createdAtFormatted: dayjs(createdAt)
+        .tz("Asia/Manila")
+        .format("YYYY-MM-DD | hh:mm a"),
+      updatedAtFormatted: dayjs(updatedAt)
+        .tz("Asia/Manila")
+        .format("YYYY-MM-DD | hh:mm a"),
+    };
+  });
 };
 
 export const dbSessionUser = async (uid) => {
@@ -1057,28 +1104,28 @@ export const loadLogActivitySessionUser = async (
 export const dbAddUser = async (params) => {
   await connectDb();
 
-  let password = makeidAlphaUpperLowerNumeric(8);
-
+  const password = makeidAlphaUpperLowerNumeric(8);
   const rtoken = generateResetToken();
 
   const newParams = {
     ...params,
     creation_date: new Date(),
-    password: password,
+    password,
     initial_password: password,
     is_reset_password: 0,
     resetToken: rtoken,
-    resetTokenExpires: Date.now() + 1000 * 60 * 15, // 15 minutes
+    resetTokenExpires: Date.now() + 1000 * 60 * 15,
   };
 
   try {
     const newUser = new User(newParams);
-    let dataUser = await newUser.save();
 
-    // await sendPasswordResetEmailNotification(dataUser);
+    const dataUser = await newUser.save();
+
+    const userObj = dataUser.toObject();
 
     const { initial_password, password, password_history, ...resultUser } =
-      dataUser;
+      userObj;
 
     return {
       code: 200,

@@ -1,11 +1,16 @@
-import { exec } from "child_process";
+import fs from "fs";
 
 import express from "express";
 import bodyParser from "body-parser";
 import mongoSanitize from "express-mongo-sanitize";
 import cookieParser from "cookie-parser";
 
-import { mapEventToFlat, upsertEvent } from "./services/vc_event.js";
+import {
+  loadEvent,
+  mapEventToFlat,
+  mapEventToFlatForList,
+  upsertEvent,
+} from "./services/vc_event.js";
 import { seedEvent } from "./services/vc_seed.js";
 
 import {
@@ -25,6 +30,7 @@ import {
   dbAddUser,
   dbEditUser,
   dbForgotPassword,
+  dbGetUser,
   dbListActivityLogs,
   dbListRoles,
   dbListUsers,
@@ -51,6 +57,8 @@ import mongoose from "mongoose";
 import { authenticate } from "./middleware/auth.js";
 import { requestOTPTest } from "./services/otp.js";
 import { Event, TabSession } from "./db/schema.js";
+import puppeteer from "puppeteer";
+import { constructVRCHtml } from "./services/vrc_pdf_template/vrc.html.js";
 
 var app = express();
 var jsonParser = bodyParser.json({ limit: "300mb" });
@@ -59,9 +67,14 @@ var appPort = APP_PORT;
 var allowedOrigins = [CORS_DOMAIN];
 
 if (["local", "dev"].includes(APP_ENV)) {
-  allowedOrigins = [CORS_DOMAIN, "http://localhost:3032"];
+  allowedOrigins = [
+    CORS_DOMAIN,
+    "http://localhost:3032",
+    "http://localhost:5173",
+  ];
 }
 
+// temporary disable
 app.use(
   cors({
     origin: function (origin, callback) {
@@ -81,22 +94,6 @@ app.use(
     credentials: true,
   }),
 );
-
-//
-// app.use(
-//   cors({
-//     origin: function (origin, callback) {
-//       if (!origin) return callback(null, true);
-
-//       if (allowedOrigins.includes(origin)) {
-//         return callback(null, true);
-//       } else {
-//         return callback(new Error("Server Error"));
-//       }
-//     },
-//   }),
-// );
-//
 
 app.use(cookieParser());
 
@@ -156,6 +153,365 @@ app.get(`${APP_URL_PREFIX}/show`, async function (request, response) {
   response.send(all);
 });
 
+// main apis ------------------------------------------------------------------------
+// ------------------------------------------------------------------------
+app.post("/v1/venu/service/user/login", async function (request, response) {
+  let data = request.body;
+  let result = await dbLogin(data, request);
+
+  if (result.code === 200) {
+    if (APP_ENV === "local") {
+      response.cookie(APP_TOKEN, result.token, {
+        httpOnly: true,
+        secure: APP_ENV === "local" ? false : true,
+        sameSite: APP_ENV === "local" ? "lax" : "none", //lax for local
+        maxAge: 60 * 60 * 1000,
+      });
+    } else {
+      response.cookie(APP_TOKEN, result.token, {
+        httpOnly: true,
+        secure: APP_ENV === "local" ? false : true,
+        sameSite: APP_ENV === "local" ? "lax" : "none", //lax for local
+        maxAge: 60 * 60 * 1000,
+        domain: ".thechandeliereventsplace.com",
+      });
+    }
+  }
+
+  response.send(result);
+});
+app.post(
+  "/v1/venu/service/user/logout",
+  authenticate,
+  async function (request, response) {
+    const token = request.cookies[APP_TOKEN];
+
+    console.log("token");
+    console.log(token);
+
+    if (token && token !== "") {
+      await dbLogout(token);
+    }
+    response.send(true);
+  },
+);
+app.post(
+  "/v1/venu/service/user/validate-token",
+  async function (request, response) {
+    const token = request.cookies[APP_TOKEN];
+
+    console.log("token");
+    console.log(token);
+
+    // response.send(token);
+
+    let data = request.body;
+    let result = await dbValidateToken(token, request);
+
+    if (result.data && result.data.role) {
+      result.data = {
+        ...result.data.toObject(),
+        access: await dbViewRole(result.data.role),
+      };
+    }
+    response.send(result);
+  },
+);
+
+app.post(
+  "/v1/venu/service/user/list",
+  authenticate,
+  async function (request, response) {
+    let data = request.body;
+    let filters = data.filters;
+    let result = await dbListUsers(filters);
+    response.send({
+      code: 200,
+      data: result,
+    });
+  },
+);
+
+app.post(
+  "/v1/venu/service/user/list",
+  authenticate,
+  async function (request, response) {
+    let data = request.body;
+    let filters = data.filters;
+    let result = await dbListUsers(filters);
+    response.send({
+      code: 200,
+      data: result,
+    });
+  },
+);
+app.post(
+  "/v1/venu/service/user/get",
+  authenticate,
+  async function (request, response) {
+    let data = request.body;
+    let filters = data.filters;
+    let result = await dbGetUser({ uid: data?.uid });
+    response.send({
+      code: 200,
+      data: result,
+    });
+  },
+);
+
+app.post(
+  "/v1/venu/service/user/add",
+  authenticate,
+  async function (request, response) {
+    let data = request.body;
+
+    const uid = request.user?.uid;
+
+    let result = await dbAddUser(data);
+    await loadLogActivitySessionUser(
+      uid,
+      "user_add",
+      `Added user  ${data.email}`,
+    );
+    response.send(result);
+  },
+);
+app.post(
+  "/v1/venu/service/user/add-direct",
+  async function (request, response) {
+    let data = request.body;
+
+    let result = await dbAddUser(data);
+
+    response.send(result);
+  },
+);
+
+app.post(
+  "/v1/venu/service/user/edit",
+  authenticate,
+  async function (request, response) {
+    let data = request.body;
+    const uid = request.user?.uid;
+
+    let thisUser = await dbSessionUserGetRole(uid);
+    let result;
+    if (thisUser.role === "admin") {
+      const { role, email, ...dataNew } = data;
+      result = await dbEditUser(dataNew);
+    } else {
+      const { role, email, ...dataNew } = data;
+      if (role === "admin") {
+        result = await dbEditUser(dataNew);
+      } else {
+        const { email, ...dataNew } = data;
+        result = await dbEditUser(dataNew);
+      }
+    }
+
+    let changeLogs = data.change_logs;
+
+    await loadLogActivitySessionUser(
+      uid,
+      "user_edit",
+      `Edited User ${data.email} | ${changeLogs}`,
+    );
+
+    response.send({
+      code: 200,
+      data: result,
+    });
+  },
+);
+// app.post("/v1/venu/service/user/session", async function (request, response) {
+//   let data = request.body;
+//   // let result = await dbEditUser(data);
+//   response.send({
+//     code: 200,
+//     data: {},
+//   });
+// });
+
+app.post(`${APP_URL_PREFIX}/events/list`, authenticate, async (req, res) => {
+  try {
+    const { page = 1, limit = 10 } = req.query; // default pagination
+    var events = await Event.find()
+      .skip((page - 1) * limit)
+      .sort("-updatedAt")
+      .limit(parseInt(limit));
+
+    events = events.map((event, i) => mapEventToFlatForList(event, i));
+
+    res.json({
+      status: 200,
+      data: events,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post(`${APP_URL_PREFIX}/vc-events/load`, upsertEvent);
+app.post(`${APP_URL_PREFIX}/vc-events/seed`, seedEvent);
+
+app.get(`${APP_URL_PREFIX}/pdf/:event_reference`, loadEvent);
+
+app.get(`${APP_URL_PREFIX}/pdf`, async function (req, res) {
+  const browser = await puppeteer.launch({
+    headless: "new",
+    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+  });
+
+  const page = await browser.newPage();
+
+  let data = {};
+
+  let htmlData = constructVRCHtml(data);
+
+  fs.writeFileSync("debug.html", htmlData);
+
+  await page.setContent(htmlData, {
+    waitUntil: "networkidle0",
+  });
+
+  page.on("console", (msg) => console.log("PAGE:", msg.text()));
+
+  page.on("requestfailed", (req) => {
+    console.log("FAILED", req.url(), req.failure());
+  });
+
+  let pageMargin = {
+    top: "90px",
+    bottom: "70px",
+    left: "25px",
+    right: "25px",
+  };
+
+  pageMargin = {
+    top: "20px",
+    bottom: "20px",
+    left: "20px",
+    right: "20px",
+  };
+
+  const pdf = await page.pdf({
+    format: "Legal",
+    landscape: false,
+    printBackground: true,
+    margin: pageMargin,
+  });
+
+  await browser.close();
+  // return pdf;
+
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", "inline; filename=DCR.pdf");
+
+  res.end(pdf);
+});
+
+app.post(
+  `${APP_URL_PREFIX}/events/calendar`,
+  authenticate,
+  async (req, res) => {
+    try {
+      const events = await Event.find().select("event_date event_type client");
+
+      const formattedEvents = events.map((event) => {
+        const { event_date, event_type, client } = event;
+
+        return {
+          type: "reserved",
+          date: event_date,
+          label: event_type,
+        };
+      });
+
+      res.json(formattedEvents);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  },
+);
+
+app.post(
+  `${APP_URL_PREFIX}/events/calendar-overdue`,
+  authenticate,
+  async (req, res) => {
+    try {
+      // const events = await Event.find().select("event_date event_type client");
+
+      const now = new Date();
+
+      // // 3. AR NUMBER IS MISSING / EMPTY
+      // {
+      //   $o: [
+      //     { $eq: ["$$p.ar_no", null] },
+      //     { $eq: ["$$p.ar_no", ""] },
+      //   ],
+      // },
+
+      // // 4. AT LEAST ONE ATTACHMENT IS MISSING
+      // {
+      //   $and: [
+      //     { $eq: ["$$p.attachment", null] },
+      //     { $eq: ["$$p.attachment", ""] },
+      //     { $eq: ["$$p.attachment2", null] },
+      //     { $eq: ["$$p.attachment2", ""] },
+      //     { $eq: ["$$p.attachment3", null] },
+      //     { $eq: ["$$p.attachment3", ""] },
+      //   ],
+      // },
+
+      const events = await Event.aggregate([
+        {
+          $project: {
+            event_date: 1,
+            event_type: 1,
+            client: 1,
+            payment_details: {
+              $filter: {
+                input: "$payment_details",
+                as: "p",
+                cond: {
+                  $and: [
+                    // 1. OVERDUE
+                    { $lt: ["$$p.date_due", now] },
+
+                    // 2. NOT PAID (optional but recommended)
+                    { $ne: ["$$p.status", "paid"] },
+                  ],
+                },
+              },
+            },
+          },
+        },
+        {
+          $match: {
+            "payment_details.0": { $exists: true },
+          },
+        },
+      ]);
+
+      const formattedEvents = events.map((event) => {
+        const { event_date, event_type, client } = event;
+
+        return {
+          type: "overdue",
+          date: event_date,
+          label: event_type,
+        };
+      });
+
+      res.json(formattedEvents);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  },
+);
+
+// main apis ------------------------------------------------------------------------
+// ------------------------------------------------------------------------
 //// new ------------------------------------------------------------------------
 
 // update options
@@ -335,55 +691,6 @@ app.delete(
 
 //// new ------------------------------------------------------------------------
 
-app.post(
-  `${APP_URL_PREFIX}/events/calendar`,
-  authenticate,
-  async (req, res) => {
-    try {
-      const events = await Event.find().select("event_date event_type client");
-
-      const formattedEvents = events.map((event) => {
-        const { event_date, event_type, client } = event;
-
-        return {
-          title: `${client.client_name} (${event_type})`,
-          start: event_date,
-          display: "background",
-          color: "#c5b358",
-        };
-      });
-
-      res.json(formattedEvents);
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
-  },
-);
-app.post(
-  `${APP_URL_PREFIX}/events/calendar-overdue`,
-  authenticate,
-  async (req, res) => {
-    try {
-      const events = await Event.find().select("event_date event_type client");
-
-      const formattedEvents = events.map((event) => {
-        const { event_date, event_type, client } = event;
-
-        return {
-          title: `${client.client_name} (${event_type})`,
-          start: event_date,
-          display: "background",
-          color: "red",
-        };
-      });
-
-      res.json(formattedEvents);
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
-  },
-);
-
 app.get(
   `${APP_URL_PREFIX}/events/tab/:session_id/:user_id`,
   async (req, res) => {
@@ -450,27 +757,6 @@ app.post(
   },
 );
 
-app.post(`${APP_URL_PREFIX}/events/list`, authenticate, async (req, res) => {
-  try {
-    const { page = 1, limit = 10 } = req.query; // default pagination
-    var events = await Event.find()
-      .skip((page - 1) * limit)
-      .limit(parseInt(limit));
-
-    events = events.map((event, i) => mapEventToFlat(event, i));
-
-    res.json({
-      status: 200,
-      data: events,
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.post(`${APP_URL_PREFIX}/vc-events/load`, upsertEvent);
-app.post(`${APP_URL_PREFIX}/vc-events/seed`, seedEvent);
-
 app.post(
   "/v1/venu/service/dashboard/view",
   authenticate,
@@ -521,46 +807,7 @@ app.post(
     });
   },
 );
-app.post("/v1/venu/service/user/login", async function (request, response) {
-  let data = request.body;
-  let result = await dbLogin(data, request);
 
-  if (result.code === 200) {
-    if (APP_ENV === "local") {
-      response.cookie(APP_TOKEN, result.token, {
-        httpOnly: true,
-        secure: APP_ENV === "local" ? false : true,
-        sameSite: APP_ENV === "local" ? "lax" : "none", //lax for local
-        maxAge: 60 * 60 * 1000,
-      });
-    } else {
-      response.cookie(APP_TOKEN, result.token, {
-        httpOnly: true,
-        secure: APP_ENV === "local" ? false : true,
-        sameSite: APP_ENV === "local" ? "lax" : "none", //lax for local
-        maxAge: 60 * 60 * 1000,
-        domain: ".thechandeliereventsplace.com",
-      });
-    }
-  }
-
-  response.send(result);
-});
-app.post(
-  "/v1/venu/service/user/logout",
-  authenticate,
-  async function (request, response) {
-    const token = request.cookies[APP_TOKEN];
-
-    console.log("token");
-    console.log(token);
-
-    if (token && token !== "") {
-      await dbLogout(token);
-    }
-    response.send(true);
-  },
-);
 app.post("/v1/venu/service/user/pre-login", async function (request, response) {
   let data = request.body;
   let result = await dbPreLogin(data);
@@ -580,24 +827,7 @@ app.post("/v1/venu/service/user/reset", async function (request, response) {
   let result = await dbValidateResetTokenAndSave(data);
   response.send(result);
 });
-app.post(
-  "/v1/venu/service/user/validate-token",
-  async function (request, response) {
-    const token = request.cookies[APP_TOKEN];
-    // response.send(token);
 
-    let data = request.body;
-    let result = await dbValidateToken(token, request);
-
-    if (result.data && result.data.role) {
-      result.data = {
-        ...result.data.toObject(),
-        access: await dbViewRole(result.data.role),
-      };
-    }
-    response.send(result);
-  },
-);
 app.post(
   "/v1/venu/service/user/validate-reset-token",
   async function (request, response) {
@@ -606,91 +836,7 @@ app.post(
     response.send(result);
   },
 );
-app.post(
-  "/v1/venu/service/user/list",
-  authenticate,
-  async function (request, response) {
-    let data = request.body;
-    let filters = data.filters;
-    let result = await dbListUsers(filters);
-    response.send({
-      code: 200,
-      data: result,
-    });
-  },
-);
 
-app.post(
-  "/v1/venu/service/user/add",
-  authenticate,
-  async function (request, response) {
-    let data = request.body;
-
-    const uid = request.user.uid;
-
-    let result = await dbAddUser(data);
-    await loadLogActivitySessionUser(
-      uid,
-      "user_add",
-      `Added user  ${data.email}`,
-    );
-    response.send(result);
-  },
-);
-app.post(
-  "/v1/venu/service/user/add-direct",
-  async function (request, response) {
-    let data = request.body;
-
-    let result = await dbAddUser(data);
-
-    response.send(result);
-  },
-);
-app.post(
-  "/v1/venu/service/user/edit",
-  authenticate,
-  async function (request, response) {
-    let data = request.body;
-    const uid = request.user.uid;
-
-    let thisUser = await dbSessionUserGetRole(uid);
-    let result;
-    if (thisUser.role === "admin") {
-      const { role, email, ...dataNew } = data;
-      result = await dbEditUser(dataNew);
-    } else {
-      const { role, email, ...dataNew } = data;
-      if (role === "admin") {
-        result = await dbEditUser(dataNew);
-      } else {
-        const { email, ...dataNew } = data;
-        result = await dbEditUser(dataNew);
-      }
-    }
-
-    let changeLogs = data.change_logs;
-
-    await loadLogActivitySessionUser(
-      uid,
-      "user_edit",
-      `Edited User ${data.email} | ${changeLogs}`,
-    );
-
-    response.send({
-      code: 200,
-      data: result,
-    });
-  },
-);
-app.post("/v1/venu/service/user/session", async function (request, response) {
-  let data = request.body;
-  // let result = await dbEditUser(data);
-  response.send({
-    code: 200,
-    data: {},
-  });
-});
 app.post(
   "/v1/venu/service/user-roles/list",
   authenticate,
