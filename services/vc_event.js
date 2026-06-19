@@ -373,3 +373,48 @@ export const loadEvent = async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 };
+
+export function mapEventToFlatForMasterList(eventDoc, i = 0) {
+  const e = eventDoc.toObject();
+  return {
+    row_number: i + 1,
+    event_date: e.event_date || "",
+    event_type: e.event_type || "",
+    client_table_name:
+      [e.client?.primary_last_name, e.client?.secondary_last_name].join("-") ||
+      "",
+
+    client_reference: e.client?.client_reference || "",
+    client_name: e.client?.client_name || "",
+    venue_type_code: e.venue_type_code || "",
+    venue_type_description: "",
+    no_of_guests: e.no_of_guests || 0,
+    event_day: e.event_day || "",
+    event_time_tentative: e.event_time_tentative || 0,
+    ingress_time_tentative: e.ingress_time_tentative || 0,
+    egress_time_tentative: e.egress_time_tentative || 0,
+    discount_details: [],
+    payment_details: e.payment_details || [],
+
+    caterer: e.caterer || "",
+    coordinator: e.coordinator || "",
+    stylist: e.stylist || "",
+    host: e.host || "",
+    lights_and_sounds: e.lights_and_sounds || "",
+    band: e.band || "",
+    photo_or_video: e.photo_or_video || "",
+    others_first: e.others_first || "",
+    photoman_booth: e.photoman_booth || "",
+    others_second: e.others_second || "",
+
+    note_1: e.note_1 || "",
+    note_2: e.note_2 || "",
+    note_3: e.note_3 || "",
+    note_4: e.note_4 || "",
+    note_5: e.note_5 || "",
+    note_6: e.note_6 || "",
+    note_7: e.note_7 || "",
+
+    grand_total: e.grand_total || 0,
+  };
+}

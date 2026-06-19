@@ -9,6 +9,7 @@ import {
   loadEvent,
   mapEventToFlat,
   mapEventToFlatForList,
+  mapEventToFlatForMasterList,
   upsertEvent,
 } from "./services/vc_event.js";
 import { seedEvent } from "./services/vc_seed.js";
@@ -59,6 +60,7 @@ import { requestOTPTest } from "./services/otp.js";
 import { Event, TabSession } from "./db/schema.js";
 import puppeteer from "puppeteer";
 import { constructVRCHtml } from "./services/vrc_pdf_template/vrc.html.js";
+import { constructMasterlistHtml } from "./services/masterlist_pdf_template/masterlist.html.js";
 
 var app = express();
 var jsonParser = bodyParser.json({ limit: "300mb" });
@@ -356,6 +358,74 @@ app.post(`${APP_URL_PREFIX}/vc-events/seed`, seedEvent);
 
 app.get(`${APP_URL_PREFIX}/pdf/:event_reference`, loadEvent);
 
+app.get(`${APP_URL_PREFIX}/masterlist`, async function (req, res) {
+  const browser = await puppeteer.launch({
+    headless: "new",
+    args: ["--no-sandbox", "--disable-setuid-sandbox"],
+  });
+
+  const page = await browser.newPage();
+
+  var events = await Event.find({
+    event_date: "2026-06-11",
+  }).sort("-createdAt");
+
+  events = events.map((event, i) => mapEventToFlatForMasterList(event, i));
+
+  let data = {};
+
+  // return res.status(200).json({ events });
+
+  let htmlData = constructMasterlistHtml(events);
+
+  fs.writeFileSync("debug.html", htmlData);
+
+  page.setDefaultNavigationTimeout(60000);
+  page.setDefaultTimeout(60000);
+
+  await page.setContent(htmlData, {
+    waitUntil: "domcontentloaded",
+  });
+
+  // await page.setContent(htmlData, {
+  //   waitUntil: "networkidle0",
+  // });
+
+  page.on("console", (msg) => console.log("PAGE:", msg.text()));
+
+  page.on("requestfailed", (req) => {
+    console.log("FAILED", req.url(), req.failure());
+  });
+
+  let pageMargin = {
+    top: "90px",
+    bottom: "70px",
+    left: "25px",
+    right: "25px",
+  };
+
+  pageMargin = {
+    top: "20px",
+    bottom: "20px",
+    left: "20px",
+    right: "20px",
+  };
+
+  const pdf = await page.pdf({
+    format: "Legal",
+    landscape: true,
+    printBackground: true,
+    margin: pageMargin,
+  });
+
+  await browser.close();
+  // return pdf;
+
+  res.setHeader("Content-Type", "application/pdf");
+  res.setHeader("Content-Disposition", "inline; filename=DCR.pdf");
+
+  res.end(pdf);
+});
 app.get(`${APP_URL_PREFIX}/pdf`, async function (req, res) {
   const browser = await puppeteer.launch({
     headless: "new",

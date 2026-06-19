@@ -148,3 +148,12 @@ export const formatDateTime = (date) => {
 
   return `${yyyy}-${mm}-${dd} | ${formattedHours}:${minutes} ${ampm}`;
 };
+
+export function formatDate(dateString) {
+  if (!dateString || dateString === "") return "";
+  return new Date(dateString).toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+}
