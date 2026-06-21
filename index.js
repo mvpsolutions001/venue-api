@@ -299,10 +299,12 @@ app.post(
     let thisUser = await dbSessionUserGetRole(uid);
     let result;
     if (thisUser.role === "admin") {
-      const { role, email, ...dataNew } = data;
+      const { email, ...dataNew } = data;
+      // const { role, email, ...dataNew } = data;
       result = await dbEditUser(dataNew);
     } else {
-      const { role, email, ...dataNew } = data;
+      const { email, ...dataNew } = data;
+      // const { role, email, ...dataNew } = data;
       if (role === "admin") {
         result = await dbEditUser(dataNew);
       } else {
