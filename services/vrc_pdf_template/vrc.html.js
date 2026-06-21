@@ -317,12 +317,8 @@ ${data.contact_no}
                     </th>
                     <td class="s2"></td>
                     <td class="s3" colspan="16">
-                        <span
-                            style="
-                                font-size: 8pt;
-                                font-family: Calibri, Arial;
-                            "
-                            >Bank: Acct. No.: ${data.bank_account_number}</span
+                        <span style="font-size: 8pt;font-family: Calibri, Arial;">
+                            Bank: Acct. No.: ${data.bank_account_number}</span
                         >
                     </td>
                     <td class="s5">

@@ -411,10 +411,12 @@ export const dbValidateResetToken = async (token) => {
 };
 export const dbValidateResetTokenAndSave = async (params) => {
   await connectDb();
+
   const user = await User.findOne({
     resetToken: params.token,
-    resetTokenExpires: { $gt: Date.now() }, // token must be in future
   });
+
+  // resetTokenExpires: { $gt: Date.now() }, // token must be in future
 
   if (!user) {
     return {
@@ -449,27 +451,28 @@ export const dbValidateResetTokenAndSave = async (params) => {
       code: 409,
       data: "invalid",
     };
-  } else if (!uppercaseReg.test(newPassword)) {
-    return {
-      code: 409,
-      data: "invalid",
-    };
-  } else if (!lowercaseReg.test(newPassword)) {
-    return {
-      code: 409,
-      data: "invalid",
-    };
-  } else if (!numberReg.test(newPassword)) {
-    return {
-      code: 409,
-      data: "invalid",
-    };
-  } else if (!specialCharReg.test(newPassword)) {
-    return {
-      code: 409,
-      data: "invalid",
-    };
   }
+  // else if (!uppercaseReg.test(newPassword)) {
+  //   return {
+  //     code: 409,
+  //     data: "invalid",
+  //   };
+  // } else if (!lowercaseReg.test(newPassword)) {
+  //   return {
+  //     code: 409,
+  //     data: "invalid",
+  //   };
+  // } else if (!numberReg.test(newPassword)) {
+  //   return {
+  //     code: 409,
+  //     data: "invalid",
+  //   };
+  // } else if (!specialCharReg.test(newPassword)) {
+  //   return {
+  //     code: 409,
+  //     data: "invalid",
+  //   };
+  // }
 
   if (user.password) {
     user.password_history.push({
@@ -480,8 +483,10 @@ export const dbValidateResetTokenAndSave = async (params) => {
 
   user.password = params.password;
   user.is_reset_password = 0;
+  user.initial_password = "";
   user.resetToken = "";
   user.resetTokenExpires = null;
+
   await user.save({ validateBeforeSave: false });
 
   await directLogActivitySessionUser(
@@ -961,6 +966,7 @@ export const dbGetUser = async (params) => {
       status: 1,
       type: 1,
       initial_password: 1,
+      is_reset_password: 1,
       createdAt: 1,
       updatedAt: 1,
     },
@@ -1112,7 +1118,7 @@ export const dbAddUser = async (params) => {
     creation_date: new Date(),
     password,
     initial_password: password,
-    is_reset_password: 0,
+    is_reset_password: 1,
     resetToken: rtoken,
     resetTokenExpires: Date.now() + 1000 * 60 * 15,
   };
@@ -1138,12 +1144,37 @@ export const dbAddUser = async (params) => {
     };
   }
 };
+
 export const dbEditUser = async (params) => {
   await connectDb();
 
-  let filter = {};
-  return await User.updateOne({ uid: params.uid }, params);
+  const updateData = { ...params };
+
+  // NEVER allow direct password overwrite unless reset is requested
+  if (updateData.is_reset_password !== 1) {
+    delete updateData.initial_password;
+  }
+
+  // If reset requested → generate backend password
+  if (updateData.is_reset_password === 1) {
+    const password = makeidAlphaUpperLowerNumeric(8);
+    const rtoken = generateResetToken();
+
+    updateData.password = password;
+    updateData.initial_password = password;
+    updateData.resetToken = rtoken;
+    updateData.resetTokenExpires = Date.now() + 1000 * 60 * 15;
+  }
+
+  return await User.updateOne({ uid: updateData.uid }, { $set: updateData });
 };
+
+// export const dbEditUser = async (params) => {
+//   await connectDb();
+
+//   let filter = {};
+//   return await User.updateOne({ uid: params.uid }, params);
+// };
 
 export const dbAddDownload = async (params) => {
   await connectDb();
