@@ -5,6 +5,9 @@ import bodyParser from "body-parser";
 import mongoSanitize from "express-mongo-sanitize";
 import cookieParser from "cookie-parser";
 
+// import uploadRoutes from "./routes/uploadDropbox.js";
+import uploadRoutes from "./routes/upload.js";
+
 import {
   loadEvent,
   mapEventToFlat,
@@ -102,6 +105,8 @@ app.use(cookieParser());
 app.use(jsonParser);
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(mongoSanitize());
+
+app.use(`${APP_URL_PREFIX}`, uploadRoutes);
 
 app.set("trust proxy", true);
 

@@ -17,6 +17,13 @@ export const POSTGRES_DB_NAME = process.env.POSTGRES_DB_NAME;
 export const JWT_SECRET = process.env.JWT_SECRET;
 export const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN;
 
+export const GOOGLE_PROJECT_ID = process.env.GOOGLE_PROJECT_ID;
+export const GOOGLE_CLIENT_EMAIL = process.env.GOOGLE_CLIENT_EMAIL;
+export const GOOGLE_PRIVATE_KEY = process.env.GOOGLE_PRIVATE_KEY;
+export const GOOGLE_DRIVE_FOLDER_ID = process.env.GOOGLE_DRIVE_FOLDER_ID;
+
+export const DROPBOX_TOKEN = process.env.DROPBOX_TOKEN;
+
 export const SMTP_SENDER_EMAIL = process.env.SMTP_SENDER_EMAIL;
 export const SMTP_RECEIVER_EMAIL = process.env.SMTP_RECEIVER_EMAIL;
 export const SMTP_AUTH_USER = process.env.SMTP_AUTH_USERNAME;
